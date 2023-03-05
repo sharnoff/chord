@@ -9,6 +9,11 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+type SignalRegister interface {
+	On(signal any, immediateCtx context.Context, callbacks ...func(context.Context) error) error
+	WithErrorHandler(handler func(context.Context, error) error) SignalRegister
+}
+
 type SignalManager struct {
 	mu sync.Mutex
 
@@ -22,17 +27,24 @@ type SignalManager struct {
 	cleanupStarted bool
 }
 
+type signalRegisterWithErrorHandler struct {
+	r          SignalRegister
+	errHandler func(context.Context, error) error
+}
+
 type signalState struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
 	callbacks []callback
 	cleanup   func()
+	triggered bool
 }
 
 type callback struct {
-	id int
-	f  func()
+	id    int
+	f     func(context.Context) error
+	onErr func(context.Context, error) error
 }
 
 func NewSignalManager() *SignalManager {
@@ -63,12 +75,12 @@ func (m *SignalManager) NewChild() *SignalManager {
 }
 
 func (m *SignalManager) setupOSSignal(s *signalState, signal any) {
-	if s.cleanup != nil {
+	if s.triggered || s.cleanup != nil {
 		return
 	}
 
 	if sig, ok := signal.(os.Signal); ok {
-		ch := make(chan os.Signal)
+		ch := make(chan os.Signal, 1)
 		ossignal.Notify(ch, sig)
 		s.cleanup = func() {
 			ossignal.Stop(ch)
@@ -80,29 +92,96 @@ func (m *SignalManager) setupOSSignal(s *signalState, signal any) {
 				if !ok {
 					return
 				}
-				m.Trigger(signal)
+				m.Trigger(signal, context.Background())
 			}
 		}()
 	}
 }
 
-func (m *SignalManager) On(signal any, callbacks ...func()) {
+func (m *SignalManager) On(signal any, immediateCtx context.Context, callbacks ...func(context.Context) error) error {
+	return m.on(signal, immediateCtx, nil, callbacks...)
+}
+
+func (m *SignalManager) WithErrorHandler(handler func(context.Context, error) error) SignalRegister {
+	return &signalRegisterWithErrorHandler{
+		r:          m,
+		errHandler: handler,
+	}
+}
+
+func (r *signalRegisterWithErrorHandler) base() *SignalManager {
+	for {
+		switch inner := r.r.(type) {
+		case *signalRegisterWithErrorHandler:
+			r = inner
+		case *SignalManager:
+			return inner
+		default:
+			panic("unexpected type")
+		}
+	}
+}
+
+func (r *signalRegisterWithErrorHandler) On(signal any, ctx context.Context, callbacks ...func(context.Context) error) error {
+	return r.base().on(signal, ctx, r.errHandler, callbacks...)
+}
+
+func (r *signalRegisterWithErrorHandler) WithErrorHandler(handler func(context.Context, error) error) SignalRegister {
+	if r.errHandler == nil {
+		return &signalRegisterWithErrorHandler{r: r.r, errHandler: handler}
+	}
+
+	return &signalRegisterWithErrorHandler{
+		r: r,
+		errHandler: func(ctx context.Context, err error) error {
+			err = handler(ctx, err)
+			if err != nil {
+				err = r.errHandler(ctx, err)
+			}
+			return err
+		},
+	}
+}
+
+func (m *SignalManager) on(signal any, ctx context.Context, errHandler func(context.Context, error) error, callbacks ...func(context.Context) error) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			m.mu.Unlock()
+		}
+	}()
 
 	if m.stopRequested || m.cleanupStarted {
-		return
+		return nil
 	}
 
 	s, _ := m.signals[signal]
 	m.setupOSSignal(&s, signal)
 
+	// if the signal already happened, do the callbacks ourselves, right now
+	if s.triggered {
+		locked = false
+		m.mu.Unlock()
+
+		for i := len(callbacks) - 1; i >= 0; i -= 1 {
+			err := callbacks[i](ctx)
+			if err != nil && errHandler != nil {
+				err = errHandler(ctx, err)
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	for _, f := range callbacks {
-		s.callbacks = append(s.callbacks, callback{id: m.nextID, f: f})
+		s.callbacks = append(s.callbacks, callback{id: m.nextID, f: f, onErr: errHandler})
 		m.nextID += 1
 	}
 
 	m.signals[signal] = s
+	return nil
 }
 
 var canceledContext = func() context.Context {
@@ -120,7 +199,9 @@ func (m *SignalManager) Context(signal any) context.Context {
 	}
 
 	s, _ := m.signals[signal]
-	if s.ctx != nil {
+	if s.triggered {
+		return canceledContext
+	} else if s.ctx != nil {
 		return s.ctx
 	}
 
@@ -130,18 +211,37 @@ func (m *SignalManager) Context(signal any) context.Context {
 	return s.ctx
 }
 
-func (m *SignalManager) Trigger(signal any) {
+func (m *SignalManager) Trigger(signal any, ctx context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	var locked bool
+	defer func() {
+		if locked {
+			m.mu.Unlock()
+		}
+	}()
+
+	// Lock handling so we can release and re-acquire our lock
+	acquire := func() {
+		m.mu.Lock()
+		locked = true
+	}
+	release := func() {
+		locked = false
+		m.mu.Unlock()
+	}
 
 	if m.stopRequested || m.cleanupStarted {
-		return
+		return nil
 	}
 
-	s, hadEntry := m.signals[signal]
-	if s.cancel != nil {
+	s, _ := m.signals[signal]
+	if s.triggered {
+		return nil
+	} else if s.cancel != nil {
 		s.cancel()
 	}
+
+	s.triggered = true // prevents all further writes to the field
 
 	cbIdx := -1
 	if len(s.callbacks) != 0 {
@@ -152,7 +252,8 @@ func (m *SignalManager) Trigger(signal any) {
 		childIdx = len(m.children) - 1
 	}
 
-	for cbIdx >= 0 || childIdx >= 0 {
+	var err error
+	for err == nil && (cbIdx >= 0 || childIdx >= 0) {
 		cbID := -1
 		if cbIdx != -1 {
 			cbID = s.callbacks[cbIdx].id
@@ -162,18 +263,31 @@ func (m *SignalManager) Trigger(signal any) {
 			childID = m.children[childIdx].idInParent
 		}
 
+		// release the lock just for the duration of calling the callbacks or child trigger; these
+		// might be reentrant, and we don't want to behave badly.
+		//
+		// Accessing fields of s is still ok, because s.triggered = true prevents other threads from
+		// writing to s.
+		release()
+
 		if cbID > childID {
-			s.callbacks[cbIdx].f()
+			err = s.callbacks[cbIdx].f(ctx)
+			if err != nil && s.callbacks[cbIdx].onErr != nil {
+				err = s.callbacks[cbIdx].onErr(ctx, err)
+			}
 			cbIdx -= 1
 		} else {
-			m.children[childIdx].Trigger(signal)
+			err = m.children[childIdx].Trigger(signal, ctx)
 			childIdx -= 1
+
 		}
+		acquire()
 	}
 
-	if hadEntry {
-		delete(m.signals, signal)
-	}
+	// unset s.callbacks so it can be garbage collected, if need be
+	s.callbacks = nil
+	m.signals[signal] = s
+	return err
 }
 
 func (m *SignalManager) Stop() {
