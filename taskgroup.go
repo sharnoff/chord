@@ -18,6 +18,12 @@ type TaskGroup struct {
 	nextSubgroupID subgroupID
 }
 
+type TaskTree struct {
+	Name      string     `json:"name"`
+	Tasks     []TaskInfo `json:"tasks"`
+	Subgroups []TaskTree `json:"subgroups"`
+}
+
 type subgroupID uint64
 
 func (g *TaskGroup) initialize() {
@@ -186,4 +192,46 @@ func (g *TaskGroup) Subgroups() []*TaskGroup {
 		sgs = append(sgs, sg)
 	}
 	return sgs
+}
+
+func (g *TaskGroup) TaskTree() TaskTree {
+	g.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			g.mu.Unlock()
+		}
+	}()
+
+	var tasks []TaskInfo
+	if g.tasks != nil {
+		for name, count := range g.tasks {
+			tasks = append(tasks, TaskInfo{Name: name, Count: count})
+		}
+	}
+
+	var sgs []*TaskGroup
+	if g.subgroups != nil {
+		for _, sg := range g.subgroups {
+			sgs = append(sgs, sg)
+		}
+	}
+
+	// Unlock during tree traversal; otherwise we could cause deadlocks
+	locked = false
+	g.mu.Unlock()
+
+	var subgroups []TaskTree
+	for _, sg := range sgs {
+		t := sg.TaskTree()
+		if len(t.Tasks) != 0 || len(t.Subgroups) != 0 {
+			subgroups = append(subgroups, t)
+		}
+	}
+
+	return TaskTree{
+		Name:      g.name,
+		Tasks:     tasks,
+		Subgroups: subgroups,
+	}
 }
