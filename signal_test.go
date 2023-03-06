@@ -176,3 +176,58 @@ func TestSignalContext(t *testing.T) {
 		t.Fatalf("bad history: expected %v but got %v", expectedHistory, history)
 	}
 }
+
+func TestSignalPastTriggerPreservedOnNew(t *testing.T) {
+	t.Parallel()
+
+	foo := "foo"
+
+	mgr := chord.NewSignalManager()
+	child1 := mgr.NewChild()
+
+	assert(mgr.Trigger(foo, context.Background()) == nil)
+
+	var history []int
+	mgr.On(foo, context.Background(), func(context.Context) error {
+		history = append(history, 1)
+		return nil
+	})
+	assert(slices.Equal(history, []int{1}))
+
+	child1.On(foo, context.Background(), func(context.Context) error {
+		history = append(history, 2)
+		return nil
+	})
+
+	assert(slices.Equal(history, []int{1, 2}))
+
+	child2 := mgr.NewChild()
+	child2.On(foo, context.Background(), func(context.Context) error {
+		history = append(history, 3)
+		return nil
+	})
+	assert(slices.Equal(history, []int{1, 2, 3}))
+}
+
+func TestSignalIgnored(t *testing.T) {
+	t.Parallel()
+
+	foo := "foo"
+
+	mgr := chord.NewSignalManager()
+	child1 := mgr.NewChild()
+	child1.Ignore(foo)
+
+	ran := false
+
+	child1.On(foo, context.Background(), func(context.Context) error {
+		ran = true
+		return nil
+	})
+
+	assert(mgr.Trigger(foo, context.Background()) == nil)
+	assert(!ran)
+
+	assert(child1.Trigger(foo, context.Background()) == nil)
+	assert(ran)
+}

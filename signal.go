@@ -39,6 +39,7 @@ type signalState struct {
 	callbacks []callback
 	cleanup   func()
 	triggered bool
+	ignored   bool
 }
 
 type callback struct {
@@ -68,6 +69,13 @@ func (m *SignalManager) NewChild() *SignalManager {
 		parent:     m,
 		idInParent: id,
 		signals:    make(map[any]signalState),
+	}
+
+	// Copy in all signals that have already been triggered
+	for sig, state := range m.signals {
+		if state.triggered {
+			child.signals[sig] = signalState{triggered: true}
+		}
 	}
 
 	m.children = append(m.children, child)
@@ -173,6 +181,7 @@ func (m *SignalManager) on(signal any, ctx context.Context, errHandler func(cont
 				return err
 			}
 		}
+		return nil
 	}
 
 	for _, f := range callbacks {
@@ -212,8 +221,12 @@ func (m *SignalManager) Context(signal any) context.Context {
 }
 
 func (m *SignalManager) Trigger(signal any, ctx context.Context) error {
+	return m.triggerInner(signal, ctx, true)
+}
+
+func (m *SignalManager) triggerInner(signal any, ctx context.Context, explicit bool) error {
 	m.mu.Lock()
-	var locked bool
+	locked := true
 	defer func() {
 		if locked {
 			m.mu.Unlock()
@@ -237,7 +250,11 @@ func (m *SignalManager) Trigger(signal any, ctx context.Context) error {
 	s, _ := m.signals[signal]
 	if s.triggered {
 		return nil
-	} else if s.cancel != nil {
+	} else if s.ignored && !explicit {
+		return nil
+	}
+
+	if s.cancel != nil {
 		s.cancel()
 	}
 
@@ -277,7 +294,7 @@ func (m *SignalManager) Trigger(signal any, ctx context.Context) error {
 			}
 			cbIdx -= 1
 		} else {
-			err = m.children[childIdx].Trigger(signal, ctx)
+			err = m.children[childIdx].triggerInner(signal, ctx, false)
 			childIdx -= 1
 
 		}
@@ -288,6 +305,15 @@ func (m *SignalManager) Trigger(signal any, ctx context.Context) error {
 	s.callbacks = nil
 	m.signals[signal] = s
 	return err
+}
+
+func (m *SignalManager) Ignore(signal any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	s, _ := m.signals[signal]
+	s.ignored = true
+	m.signals[signal] = s
 }
 
 func (m *SignalManager) Stop() {
