@@ -36,10 +36,11 @@ type signalState struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	callbacks []callback
-	cleanup   func()
-	triggered bool
-	ignored   bool
+	callbacks        []callback
+	cleanup          func()
+	triggered        bool
+	inheritedTrigger bool
+	ignored          bool
 }
 
 type callback struct {
@@ -74,7 +75,7 @@ func (m *SignalManager) NewChild() *SignalManager {
 	// Copy in all signals that have already been triggered
 	for sig, state := range m.signals {
 		if state.triggered {
-			child.signals[sig] = signalState{triggered: true}
+			child.signals[sig] = signalState{triggered: true, inheritedTrigger: true}
 		}
 	}
 
@@ -249,6 +250,11 @@ func (m *SignalManager) triggerInner(signal any, ctx context.Context, explicit b
 
 	s, _ := m.signals[signal]
 	if s.triggered {
+		if s.inheritedTrigger && explicit {
+			s.inheritedTrigger = false
+			m.signals[signal] = s
+		}
+
 		return nil
 	} else if s.ignored && !explicit {
 		return nil
@@ -313,6 +319,9 @@ func (m *SignalManager) Ignore(signal any) {
 
 	s, _ := m.signals[signal]
 	s.ignored = true
+	if s.inheritedTrigger {
+		s.triggered = false
+	}
 	m.signals[signal] = s
 }
 

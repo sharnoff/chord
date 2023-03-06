@@ -230,4 +230,18 @@ func TestSignalIgnored(t *testing.T) {
 
 	assert(child1.Trigger(foo, context.Background()) == nil)
 	assert(ran)
+
+	ran = false
+	child2 := mgr.NewChild()
+	child2.Ignore(foo)
+	assert(child2.Context(foo).Err() == nil)
+
+	child2.On(foo, context.Background(), func(context.Context) error {
+		ran = true
+		return nil
+	})
+	assert(!ran)
+
+	child2.Trigger(foo, context.Background())
+	assert(ran)
 }
