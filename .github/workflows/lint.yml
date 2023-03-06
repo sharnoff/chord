@@ -1,0 +1,31 @@
+name: go lint
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  golangci:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v3
+      - name: golangci
+      - uses: technote-space/get-diff-action@v6
+        with:
+          PATTERNS: |
+            **/**.go
+            go.mod
+            go.sum
+      - uses: golangci/golangci-lint-action@v3
+        with:
+          # Required: the version of golangci-lint is required and
+          # should be specified with patch version.
+          version: v1.50.1
+          args: --timeout 5m --fix
+          github-token: ${{ secrets.github_token }}
+        if: env.GIT_DIFF

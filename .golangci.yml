@@ -1,0 +1,17 @@
+run:
+  deadline: 1m
+  issues-exit-code: 1
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true
+
+issues:
+  exclude-rules:
+    # We use e.g. 'x, _ := m[y]' to explicitly indicate that we don't care about whether the key is
+    # present in the map - we're happy to use the zero value.
+    - linters:
+      - gosimple
+      text: "S1005: unnecessary assignment to the blank identifier"
