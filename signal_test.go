@@ -46,7 +46,7 @@ func TestSignalCallbackOrdering(t *testing.T) {
 	err = child2.On(sig, ctx, record(5))
 	assert(err == nil)
 
-	mgr.On(sig, ctx, record(6))
+	_ = mgr.On(sig, ctx, record(6))
 	assert(err == nil)
 
 	if err := mgr.Trigger(sig, context.Background()); err != nil {
@@ -123,29 +123,33 @@ func TestSignalContext(t *testing.T) {
 
 	var history []int
 
+	type immKey struct{}
+	type fooKey struct{}
+	type barKey struct{}
+
 	mgr := chord.NewSignalManager()
-	immediateCtx := context.WithValue(context.Background(), "immKey", "value for immediate")
+	immediateCtx := context.WithValue(context.Background(), immKey{}, "value for immediate")
 
 	fooCtx := mgr.Context(foo)
-	assert(fooCtx.Value("immKey") == nil) // immediate context only applies when callbacks are immediately run
+	assert(fooCtx.Value(immKey{}) == nil) // immediate context only applies when callbacks are immediately run
 
 	assert(fooCtx.Err() == nil)
 
-	mgr.On(foo, immediateCtx, func(ctx context.Context) error {
-		assert(ctx.Value("fooKey") == "value for foo")
+	_ = mgr.On(foo, immediateCtx, func(ctx context.Context) error {
+		assert(ctx.Value(fooKey{}) == "value for foo")
 
 		history = append(history, 1)
 		return nil
 	})
 
-	mgr.On(bar, immediateCtx, func(base context.Context) error {
-		assert(base.Value("barKey") == "value for bar")
+	_ = mgr.On(bar, immediateCtx, func(base context.Context) error {
+		assert(base.Value(barKey{}) == "value for bar")
 
 		history = append(history, 2)
-		ctx := context.WithValue(base, "fooKey", "value for foo")
+		ctx := context.WithValue(base, fooKey{}, "value for foo")
 
 		assert(fooCtx.Err() == nil)
-		mgr.Trigger(foo, ctx)
+		_ = mgr.Trigger(foo, ctx)
 		assert(fooCtx.Err() != nil)
 
 		history = append(history, 3)
@@ -155,19 +159,19 @@ func TestSignalContext(t *testing.T) {
 	barCtx := mgr.Context(bar)
 
 	assert(barCtx.Err() == nil)
-	mgr.Trigger(bar, context.WithValue(context.Background(), "barKey", "value for bar"))
+	_ = mgr.Trigger(bar, context.WithValue(context.Background(), barKey{}, "value for bar"))
 	assert(barCtx.Err() != nil)
 
 	// bar was already triggered; we should be called with immediateCtx
-	mgr.On(bar, immediateCtx, func(ctx context.Context) error {
+	_ = mgr.On(bar, immediateCtx, func(ctx context.Context) error {
 		history = append(history, 4)
-		assert(ctx.Value("immKey") == "value for immediate")
+		assert(ctx.Value(immKey{}) == "value for immediate")
 		return nil
 	})
 	// same for foo
-	mgr.On(foo, immediateCtx, func(ctx context.Context) error {
+	_ = mgr.On(foo, immediateCtx, func(ctx context.Context) error {
 		history = append(history, 5)
-		assert(ctx.Value("immKey") == "value for immediate")
+		assert(ctx.Value(immKey{}) == "value for immediate")
 		return nil
 	})
 
@@ -188,13 +192,13 @@ func TestSignalPastTriggerPreservedOnNew(t *testing.T) {
 	assert(mgr.Trigger(foo, context.Background()) == nil)
 
 	var history []int
-	mgr.On(foo, context.Background(), func(context.Context) error {
+	_ = mgr.On(foo, context.Background(), func(context.Context) error {
 		history = append(history, 1)
 		return nil
 	})
 	assert(slices.Equal(history, []int{1}))
 
-	child1.On(foo, context.Background(), func(context.Context) error {
+	_ = child1.On(foo, context.Background(), func(context.Context) error {
 		history = append(history, 2)
 		return nil
 	})
@@ -202,7 +206,7 @@ func TestSignalPastTriggerPreservedOnNew(t *testing.T) {
 	assert(slices.Equal(history, []int{1, 2}))
 
 	child2 := mgr.NewChild()
-	child2.On(foo, context.Background(), func(context.Context) error {
+	_ = child2.On(foo, context.Background(), func(context.Context) error {
 		history = append(history, 3)
 		return nil
 	})
@@ -220,7 +224,7 @@ func TestSignalIgnored(t *testing.T) {
 
 	ran := false
 
-	child1.On(foo, context.Background(), func(context.Context) error {
+	_ = child1.On(foo, context.Background(), func(context.Context) error {
 		ran = true
 		return nil
 	})
@@ -236,12 +240,12 @@ func TestSignalIgnored(t *testing.T) {
 	child2.Ignore(foo)
 	assert(child2.Context(foo).Err() == nil)
 
-	child2.On(foo, context.Background(), func(context.Context) error {
+	_ = child2.On(foo, context.Background(), func(context.Context) error {
 		ran = true
 		return nil
 	})
 	assert(!ran)
 
-	child2.Trigger(foo, context.Background())
+	_ = child2.Trigger(foo, context.Background())
 	assert(ran)
 }

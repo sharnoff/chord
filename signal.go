@@ -101,7 +101,7 @@ func (m *SignalManager) setupOSSignal(s *signalState, signal any) {
 				if !ok {
 					return
 				}
-				m.Trigger(signal, context.Background())
+				_ = m.Trigger(signal, context.Background())
 			}
 		}()
 	}

@@ -80,10 +80,6 @@ var pcBufPool = sync.Pool{
 	},
 }
 
-func getPCBuffer() *[]uintptr {
-	return pcBufPool.Get().(*[]uintptr)
-}
-
 func putPCBuffer(buf *[]uintptr) {
 	if len(*buf) < 1024 {
 		pcBufPool.Put(buf)
