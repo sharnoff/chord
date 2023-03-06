@@ -11,6 +11,12 @@ systems.
 
 For an example of this package in use, see: <https://github.com/neondatabase/autoscaling/blob/chord-task-mgmt/pkg/task/manager.go>.
 
-For API documentation, refer to godoc: <https://godoc.org/github.com/sharnoff/chord>.
-
 ## Feature summary
+
+Broadly there's three categories of things provided by this package:
+
+* Stack trace chaining — for including callers in the stack traces of goroutines
+* Signal handling — both OS signals and user-defined signals, like "shutdown"
+* Hierarchical, named `sync.WaitGroup` — for tracking tasks: getting the active set and waiting on a subset to finish
+
+For full API documentation, refer to godoc: <https://godoc.org/github.com/sharnoff/chord>.
