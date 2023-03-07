@@ -9,7 +9,7 @@ Broadly, the tools belong to a few distinct groups:
 - Stack trace collection, printing, and appending: [StackTrace], [GetStackTrace], and [StackFrame]
 - Hierarchical, named sync.WaitGroup: [TaskGroup], [NewTaskGroup], [TaskTree], [TaskInfo]
 
-For an example of using all of it together, see: <https://github.com/neondatabase/autoscaling/blob/chord-task-mgmt/pkg/task/manager.go>.
+For an example of using all of it together, see: <https://github.com/neondatabase/autoscaling/blob/sharnoff/chord-task-mgmt/pkg/task/manager.go>.
 
 # Signal handling
 

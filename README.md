@@ -9,7 +9,7 @@ The needs of different projects differ, so an opinionated one-stop-solution will
 limited use. This package aims to provide the building blocks that tend to be common across such
 systems.
 
-For an example of this package in use, see: <https://github.com/neondatabase/autoscaling/blob/chord-task-mgmt/pkg/task/manager.go>.
+For an example of this package in use, see: <https://github.com/neondatabase/autoscaling/blob/sharnoff/chord-task-mgmt/pkg/task/manager.go>.
 
 ## Feature summary
 
