@@ -22,8 +22,8 @@ once, when the signal is triggered. Callbacks are processed sequentially in the 
 when they're registered, and may return error. Unhandled errors will prevent calling any remaining
 callbacks.
 
-Signals can be manually triggered with [SignalManager.Trigger]. There's special handling around
-[os.Signal] values so that forwarding into the SignalManager is automatically set up when
+Signals can be manually triggered with [SignalManager.TriggerAndWait]. There's special handling
+around [os.Signal] values so that forwarding into the SignalManager is automatically set up when
 required.
 
 For more, see [SignalManager].

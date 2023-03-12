@@ -114,12 +114,6 @@ func (g *TaskGroup) rectifyDone() {
 	}
 }
 
-var alwaysClosed = func() <-chan struct{} {
-	ch := make(chan struct{})
-	close(ch)
-	return ch
-}()
-
 func (g *TaskGroup) Wait() <-chan struct{} {
 	g.mu.Lock()
 	defer g.mu.Unlock()

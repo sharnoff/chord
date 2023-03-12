@@ -49,7 +49,7 @@ func TestSignalCallbackOrdering(t *testing.T) {
 	_ = mgr.On(sig, ctx, record(6))
 	assert(err == nil)
 
-	if err := mgr.Trigger(sig, context.Background()); err != nil {
+	if err := mgr.TriggerAndWait(sig, context.Background()); err != nil {
 		t.Fatalf("unexpected error on Trigger: %s", err)
 	}
 
@@ -101,7 +101,7 @@ func TestSignalBasicErrorHandling(t *testing.T) {
 	})
 	assert(err == nil)
 
-	err = mgr.Trigger(sig, context.Background())
+	err = mgr.TriggerAndWait(sig, context.Background())
 	if err != testErr {
 		t.Fatalf("expected error %v, got %v", testErr, err)
 	}
@@ -111,7 +111,7 @@ func TestSignalBasicErrorHandling(t *testing.T) {
 	}
 
 	// Make sure re-triggering doesn't do anything weird
-	assert(mgr.Trigger(sig, context.Background()) == nil)
+	assert(mgr.TriggerAndWait(sig, context.Background()) == nil)
 	assert(slices.Equal(history, []int{5, 4, 3, 2}))
 }
 
@@ -149,7 +149,7 @@ func TestSignalContext(t *testing.T) {
 		ctx := context.WithValue(base, fooKey{}, "value for foo")
 
 		assert(fooCtx.Err() == nil)
-		_ = mgr.Trigger(foo, ctx)
+		_ = mgr.TriggerAndWait(foo, ctx)
 		assert(fooCtx.Err() != nil)
 
 		history = append(history, 3)
@@ -159,7 +159,7 @@ func TestSignalContext(t *testing.T) {
 	barCtx := mgr.Context(bar)
 
 	assert(barCtx.Err() == nil)
-	_ = mgr.Trigger(bar, context.WithValue(context.Background(), barKey{}, "value for bar"))
+	_ = mgr.TriggerAndWait(bar, context.WithValue(context.Background(), barKey{}, "value for bar"))
 	assert(barCtx.Err() != nil)
 
 	// bar was already triggered; we should be called with immediateCtx
@@ -189,7 +189,7 @@ func TestSignalPastTriggerPreservedOnNew(t *testing.T) {
 	mgr := chord.NewSignalManager()
 	child1 := mgr.NewChild()
 
-	assert(mgr.Trigger(foo, context.Background()) == nil)
+	assert(mgr.TriggerAndWait(foo, context.Background()) == nil)
 
 	var history []int
 	_ = mgr.On(foo, context.Background(), func(context.Context) error {
@@ -229,10 +229,10 @@ func TestSignalIgnored(t *testing.T) {
 		return nil
 	})
 
-	assert(mgr.Trigger(foo, context.Background()) == nil)
+	assert(mgr.TriggerAndWait(foo, context.Background()) == nil)
 	assert(!ran)
 
-	assert(child1.Trigger(foo, context.Background()) == nil)
+	assert(child1.TriggerAndWait(foo, context.Background()) == nil)
 	assert(ran)
 
 	ran = false
@@ -246,6 +246,6 @@ func TestSignalIgnored(t *testing.T) {
 	})
 	assert(!ran)
 
-	_ = child2.Trigger(foo, context.Background())
+	_ = child2.TriggerAndWait(foo, context.Background())
 	assert(ran)
 }
