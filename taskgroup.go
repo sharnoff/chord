@@ -6,6 +6,18 @@ import (
 	"sync"
 )
 
+// TaskGroup provides [sync.WaitGroup]-like functionality, with the following changes:
+//
+//  1. Tasks are named, added one at a time with [TaskGroup.Add]
+//  2. TaskGroups are hierarchical, with subgroups that can be separately Wait-ed on
+//  3. [TaskGroup.Wait] returns a channel, so it can be selected over
+//  4. The set of running tasks can be fetched with [TaskGroup.Tasks], [TaskGroup.Subgroups], or
+//     [Taskgroup.TaskTree].
+//  5. More tasks may be added after all have been completed
+//
+// Other than those, the general idea should be roughly familiar to users of sync.WaitGroup.
+//
+// See also: [TaskTree], [TaskInfo].
 type TaskGroup struct {
 	mu             sync.Mutex
 	parent         *TaskGroup
@@ -18,6 +30,8 @@ type TaskGroup struct {
 	nextSubgroupID subgroupID
 }
 
+// TaskTree represents the structure unfinished tasks in a [TaskGroup], returned by
+// [TaskGroup.TaskTree].
 type TaskTree struct {
 	Name      string     `json:"name"`
 	Tasks     []TaskInfo `json:"tasks"`
@@ -33,14 +47,20 @@ func (g *TaskGroup) initialize() {
 	}
 }
 
+// NewTaskGroup creates a new TaskGroup with the given name
 func NewTaskGroup(name string) *TaskGroup {
 	return &TaskGroup{name: name}
 }
 
+// Name returns the name of the TaskGroup, as constructed via [NewTaskGroup] or
+// [TaskGroup.NewSubgroup].
 func (g *TaskGroup) Name() string {
 	return g.name
 }
 
+// NewSubgroup creates a new TaskGroup that is contained within g.
+//
+// Waiting on the parent TaskGroup will not complete if the child TaskGroup has unfinished tasks.
 func (g *TaskGroup) NewSubgroup(name string) *TaskGroup {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -55,6 +75,11 @@ func (g *TaskGroup) NewSubgroup(name string) *TaskGroup {
 	}
 }
 
+// Add adds a task with the name to the TaskGroup. Add may be called multiple times with the same
+// name, in which case multiple instances of that task will be counted.
+//
+// Waiting on the TaskGroup will not complete until there is exactly one call to [TaskGroup.Done]
+// with a matching name for each call to Add.
 func (g *TaskGroup) Add(name string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -76,6 +101,9 @@ func (g *TaskGroup) rectifyAdded() {
 	}
 }
 
+// Done marks a task with the name as completed.
+//
+// Done will panic if there aren't any remaining tasks with the name.
 func (g *TaskGroup) Done(name string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -114,6 +142,7 @@ func (g *TaskGroup) rectifyDone() {
 	}
 }
 
+// Wait returns a channel that is closed once all tasks have been completed with [TaskGroup.Done].
 func (g *TaskGroup) Wait() <-chan struct{} {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -130,6 +159,10 @@ func (g *TaskGroup) Wait() <-chan struct{} {
 	return g.allDone
 }
 
+// TryWait Waits on the TaskGroup, returning early with ctx.Err() if the context is canceled.
+//
+// If the context is already canceled when TryWait is called, this method will always return the
+// context's error.
 func (g *TaskGroup) TryWait(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -144,6 +177,7 @@ func (g *TaskGroup) TryWait(ctx context.Context) error {
 	}
 }
 
+// Finished returns whether all tasks are finished, i.e. if waiting will immediately complete.
 func (g *TaskGroup) Finished() bool {
 	select {
 	case <-g.Wait():
@@ -153,11 +187,22 @@ func (g *TaskGroup) Finished() bool {
 	}
 }
 
+// TaskInfo returns information about a set of tasks with a particular name.
+//
+// Instances of TaskInfo are produced by [TaskGroup.Tasks] and [TaskGroup.TaskTree].
 type TaskInfo struct {
-	Name  string
+	Name string
+	// Count provides the number of running tasks named Name. Count is never zero when returned by
+	// [TaskGroup.Tasks] or [TaskGroup.TaskTree].
 	Count uint
 }
 
+// Tasks returns information about the set of running tasks. It does not recurse into subgroups.
+//
+// Each returned TaskInfo is guaranteed to have a Count greater than zero, representing the number
+// of tasks with that name. If all task names are unique, all task counts will be 1.
+//
+// To get information about tasks and subgroups at the same time, try [TaskGroup.TaskTree].
 func (g *TaskGroup) Tasks() []TaskInfo {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -173,6 +218,10 @@ func (g *TaskGroup) Tasks() []TaskInfo {
 	return ts
 }
 
+// Subgroups returns the set of TaskGroups with running tasks.
+//
+// Note that between calling Subgroups and method on the returned TaskGroups, it may be possible
+// that some or all of them have finished.
 func (g *TaskGroup) Subgroups() []*TaskGroup {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -188,6 +237,18 @@ func (g *TaskGroup) Subgroups() []*TaskGroup {
 	return sgs
 }
 
+// TaskTree returns a snapshot of all running tasks.
+//
+// If tasks are being added or removed during the call to TaskTree, the returned structure may not
+// exactly match the state at any particular point in time - e.g. some returned subgroups may have
+// no tasks.
+//
+// In general, any property that is true at the start of calling TaskTree and remains true through
+// to when the call is finished (like "task X in subgroup Y is running") will be correctly
+// represented in the returend [TaskTree]. Changes that occur during the call may be missing.
+//
+// The recommended use of this method is for runtime diagnostics - like having better information
+// about exactly which tasks are still running, when waiting for something to stop.
 func (g *TaskGroup) TaskTree() TaskTree {
 	g.mu.Lock()
 	locked := true
