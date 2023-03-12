@@ -1,30 +1,51 @@
 package chord
 
+// TODO - want to have some kind of "N skipped" when (a) there's lots of frames and (b) many of
+// those frames are duplicates
+
 import (
 	"runtime"
 	"strconv"
 	"sync"
 )
 
+// StackTrace represents a collected stack trace, possibly with a parent (i.e caller)
+//
+// StackTraces are designed to make it easy to track callers across goroutines. They are typically
+// produced by [GetStackTrace]; refer to that function for more information.
 type StackTrace struct {
+	// Frames provides the frames of this stack trace. Each frame's caller is at the index following
+	// it; the first frame is the direct caller.
 	Frames []StackFrame
+	// Parent, if not nil, provides the "parent" stack trace - typically the stack trace at the
+	// point this goroutine was spawned.
 	Parent *StackTrace
 }
 
-// TODO - want to have some kind of "N skipped" when (a) there's lots of frames and (b) many of
-// those frames are duplicates
-
+// Individual stack frame, contained in a [StackTrace], produced by [GetStackTrace].
 type StackFrame struct {
+	// Function provides the name of the function being called, or the empty string if unknown.
 	Function string
-	File     string
-	Line     int
+	// File gives the name of the file, or an empty string if the file is unknown.
+	File string
+	// Line gives the line number (starting from 1), or zero if the line number is unknown.
+	Line int
 }
 
+// GetStackTrace produces a StackTrace, optionally with a parent's stack trace to append.
+//
+// skip sets the number of initial calling stack frames to exclude. Setting skip to zero will
+// produce a StackTrace where the first [StackFrame] represents the location where GetStackTrace was
+// called.
 func GetStackTrace(parent *StackTrace, skip uint) StackTrace {
 	frames := getFrames(skip + 1) // skip the additional frame introduced by GetStackTrace
 	return StackTrace{Frames: frames, Parent: parent}
 }
 
+// String produces a string representation of the stack trace, roughly similar to the default panic
+// handler's.
+//
+// For some examples of formatting, refer to the StackTrace tests.
 func (st StackTrace) String() string {
 	var buf []byte
 
@@ -67,6 +88,7 @@ func (st StackTrace) String() string {
 		}
 
 		st = *st.Parent
+		buf = append(buf, "called by "...)
 		continue
 	}
 
