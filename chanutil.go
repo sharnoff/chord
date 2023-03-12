@@ -7,16 +7,3 @@ var alwaysClosed = func() chan struct{} {
 	close(ch)
 	return ch
 }()
-
-func isClosed(c <-chan struct{}) bool {
-	if c == nil {
-		return false
-	}
-
-	select {
-	case <-c:
-		return true
-	default:
-		return false
-	}
-}

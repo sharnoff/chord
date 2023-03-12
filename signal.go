@@ -91,7 +91,7 @@ const (
 	signalTriggeredModeByParent signalTriggeredMode = 0b01
 	signalTriggeredModeBySelf   signalTriggeredMode = 0b10
 
-	signalTriggeredModeMask signalTriggeredMode = 0b11
+	signalTriggeredModeMask signalTriggeredMode = 0b11 //nolint:unused
 )
 
 type contextInfo struct {
@@ -104,7 +104,7 @@ var alwaysCanceled = func() *contextInfo {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.cancel()
 	return c
-}
+}()
 
 // NewSignalManager returns a new SignalManager
 //
@@ -119,10 +119,6 @@ func NewSignalManager() *SignalManager {
 // requires holding the lock
 func (m *SignalManager) stopped() bool {
 	return m.stopRequested && len(m.children) == 0
-}
-
-func (m signalTriggeredMode) atAll() bool {
-	return m&signalTriggeredModeMask != 0
 }
 
 func (m signalTriggeredMode) bySelf() bool {
@@ -393,12 +389,6 @@ func (m *SignalManager) on(signal any, ctx context.Context, errHandler func(cont
 	return nil
 }
 
-var canceledContext = func() context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	return ctx
-}()
-
 // Context returns a Context that is canceled once the signal is triggered.
 //
 // Note that the semantics of this method are different from [SignalManager.Wait]; the channel
@@ -415,10 +405,13 @@ func (m *SignalManager) Context(signal any) context.Context {
 	m.observeIfTriggered(signal)
 
 	s, _ := m.signals[signal]
+	if s.triggered() && s.ctx == nil {
+		s.ctx = alwaysCanceled
+		m.signals[signal] = s
+	}
+
 	if s.ctx != nil {
 		return s.ctx.ctx
-	} else if s.triggered() {
-		return canceledContext
 	}
 
 	m.setupOSSignal(&s, signal, nil)
