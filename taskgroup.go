@@ -191,10 +191,10 @@ func (g *TaskGroup) Finished() bool {
 //
 // Instances of TaskInfo are produced by [TaskGroup.Tasks] and [TaskGroup.TaskTree].
 type TaskInfo struct {
-	Name string
+	Name string `json:"name"`
 	// Count provides the number of running tasks named Name. Count is never zero when returned by
 	// [TaskGroup.Tasks] or [TaskGroup.TaskTree].
-	Count uint
+	Count uint `json:"count"`
 }
 
 // Tasks returns information about the set of running tasks. It does not recurse into subgroups.
